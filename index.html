@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f4c5c">
+<title>الحضور والانصراف</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;800&display=swap" rel="stylesheet">
+<style>
+:root{--ink:#10282f;--bg:#f2f5f4;--card:#fff;--brand:#0f4c5c;--in:#1b7f5c;--out:#b4472f;--mut:#5d7279;--line:#d5dfdd;--ok:#e3f4ec;--bad:#fbe9e5}
+@media (prefers-color-scheme:dark){:root{--ink:#e8f0ef;--bg:#0d1a1e;--card:#15262b;--brand:#6fc2d4;--in:#37b888;--out:#e2795f;--mut:#93a8ad;--line:#274046;--ok:#12372a;--bad:#3d1e18}}
+*{box-sizing:border-box}
+html,body{margin:0;min-height:100%}
+body{font-family:'Cairo',system-ui,'Segoe UI',Tahoma,sans-serif;background:var(--bg);color:var(--ink);padding:env(safe-area-inset-top,0) 0 env(safe-area-inset-bottom,0)}
+main{max-width:440px;margin:0 auto;padding:20px 16px 40px}
+h1{font-size:1.5rem;margin:12px 0 4px;font-weight:800}
+p.sub{margin:0 0 20px;color:var(--mut)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px}
+label{display:block;font-weight:600;margin:14px 0 6px}
+input{width:100%;font:inherit;font-size:1.1rem;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink);direction:ltr;text-align:right}
+input:focus,button:focus-visible{outline:3px solid var(--brand);outline-offset:2px}
+button{font:inherit;font-weight:800;border:0;border-radius:12px;cursor:pointer;color:#fff}
+button:disabled{opacity:.55;cursor:wait}
+.login-btn{width:100%;margin-top:20px;padding:14px;background:var(--brand);font-size:1.1rem}
+.who{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.who b{font-size:1.25rem}.who span{color:var(--mut);display:block}
+.link{background:none;color:var(--mut);font-weight:600;text-decoration:underline;padding:4px}
+.punch{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:18px 0}
+.punch button{padding:34px 8px;font-size:1.4rem}
+#bIn{background:var(--in)}#bOut{background:var(--out)}
+#msg{display:none;border-radius:12px;padding:14px 16px;line-height:1.7;font-weight:600}
+#msg.ok{display:block;background:var(--ok)}#msg.bad{display:block;background:var(--bad)}
+.note{color:var(--mut);font-size:.9rem;margin-top:16px}
+.hidden{display:none}
+</style>
+</head>
+<body>
+<main>
+  <section id="loginView">
+    <h1>تسجيل الدخول</h1>
+    <p class="sub">اكتب بياناتك مرة واحدة، وسيتذكرها هذا الهاتف.</p>
+    <div class="card">
+      <label for="fileNo">رقم الملف</label>
+      <input id="fileNo" inputmode="numeric" autocomplete="off">
+      <label for="phone">رقم الهاتف</label>
+      <input id="phone" inputmode="tel" autocomplete="tel">
+      <label for="pin">الرقم السري</label>
+      <input id="pin" type="password" inputmode="numeric" autocomplete="off">
+      <button class="login-btn" id="loginBtn">دخول</button>
+    </div>
+  </section>
+
+  <section id="homeView" class="hidden">
+    <div class="who">
+      <div><b id="uName"></b><span id="uInfo"></span></div>
+      <button class="link" id="logout">تسجيل خروج</button>
+    </div>
+    <div class="punch">
+      <button id="bIn">حضور</button>
+      <button id="bOut">انصراف</button>
+    </div>
+    <div id="msg" role="status" aria-live="polite"></div>
+    <p class="note">يجب أن تكون داخل نطاق 100 متر من أحد الفروع. فعّل الموقع (GPS) واسمح للمتصفح باستخدامه.</p>
+  </section>
+</main>
+
+<script>
+const SERVER = 'https://script.google.com/macros/s/AKfycbwOTuo1IqPgz5Aj2-zT_0Nbyz-LHY4JytKjG3ZlPO3Bs_pi_yN0vrCl-aBlIWGoqPTp/exec';
+
+const $ = id => document.getElementById(id);
+const store = {
+  get(k){ try { return localStorage.getItem(k); } catch(e){ return null; } },
+  set(k,v){ try { localStorage.setItem(k,v); } catch(e){} },
+  del(k){ try { localStorage.removeItem(k); } catch(e){} }
+};
+
+function deviceId(){
+  let d = store.get('deviceId');
+  if(!d){
+    d = 'WEB-' + (crypto.randomUUID ? crypto.randomUUID() : Date.now() + '-' + Math.random().toString(36).slice(2));
+    store.set('deviceId', d);
+  }
+  return d;
+}
+
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+// نرسل الطلب، ونعيد المحاولة 3 مرات بفاصل عشوائي لو الشبكة ضعيفة أو الخادم مزدحم
+async function call(payload){
+  let lastErr;
+  for(let i = 0; i < 3; i++){
+    try{
+      const res = await fetch(SERVER, {
+        method: 'POST',
+        headers: {'Content-Type': 'text/plain;charset=utf-8'},
+        body: JSON.stringify(payload)
+      });
+      return await res.json();
+    }catch(e){
+      lastErr = e;
+      await sleep(2000 + Math.random() * 3000);
+    }
+  }
+  return {ok:false, error:'تعذر الاتصال بالخادم. تأكد من الإنترنت وحاول مرة أخرى'};
+}
+
+function show(view){
+  $('loginView').classList.toggle('hidden', view !== 'login');
+  $('homeView').classList.toggle('hidden', view !== 'home');
+}
+
+function say(text, ok){
+  const m = $('msg');
+  m.textContent = text;
+  m.className = ok ? 'ok' : 'bad';
+}
+
+function creds(){
+  return { fileNo: store.get('fileNo'), phone: store.get('phone'), pin: store.get('pin'), deviceId: deviceId() };
+}
+
+function renderHome(u){
+  $('uName').textContent = u.name;
+  $('uInfo').textContent = 'ملف ' + u.fileNo + ' · الفرع الأساسي: ' + u.branch + ' · رصيد الإجازات: ' + u.leaveBalance;
+  show('home');
+}
+
+async function doLogin(){
+  const fileNo = $('fileNo').value.trim(), phone = $('phone').value.trim(), pin = $('pin').value.trim();
+  if(!fileNo || !phone || !pin){ alert('اكتب رقم الملف والهاتف والرقم السري'); return; }
+  const b = $('loginBtn'); b.disabled = true; b.textContent = 'جاري التحقق...';
+  const r = await call({action:'login', fileNo, phone, pin, deviceId: deviceId()});
+  b.disabled = false; b.textContent = 'دخول';
+  if(!r.ok){ alert(r.error); return; }
+  store.set('fileNo', fileNo); store.set('phone', phone); store.set('pin', pin);
+  store.set('user', JSON.stringify(r));
+  renderHome(r);
+}
+
+function getPosition(){
+  return new Promise((resolve, reject) => {
+    if(!navigator.geolocation){ reject({code:0}); return; }
+    navigator.geolocation.getCurrentPosition(resolve, reject, {enableHighAccuracy:true, timeout:25000, maximumAge:0});
+  });
+}
+
+async function punch(type){
+  const bIn = $('bIn'), bOut = $('bOut');
+  bIn.disabled = bOut.disabled = true;
+  say('جاري تحديد موقعك...', true);
+  let pos;
+  try{
+    pos = await getPosition();
+  }catch(e){
+    bIn.disabled = bOut.disabled = false;
+    say(e && e.code === 1
+      ? 'لم تسمح للمتصفح باستخدام الموقع. افتح إعدادات المتصفح واسمح بالموقع ثم حاول مرة أخرى'
+      : 'لم نستطع تحديد موقعك. فعّل الـ GPS وحاول مرة أخرى', false);
+    return;
+  }
+  say('جاري التسجيل...', true);
+  const r = await call(Object.assign(creds(), {
+    action:'punch', type, source:'Web', isMock:false,
+    lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy
+  }));
+  bIn.disabled = bOut.disabled = false;
+  if(!r.ok){ say(r.error, false); return; }
+  const label = r.type === 'in' ? 'تم تسجيل حضورك' : 'تم تسجيل انصرافك';
+  let t = label + ' الساعة ' + r.time + ' في فرع ' + r.branch;
+  if(r.type === 'out') t += '. ساعات العمل: ' + r.hours;
+  say(t, true);
+}
+
+function logout(){
+  ['fileNo','phone','pin','user'].forEach(store.del);
+  $('pin').value = '';
+  show('login');
+}
+
+$('loginBtn').addEventListener('click', doLogin);
+$('bIn').addEventListener('click', () => punch('in'));
+$('bOut').addEventListener('click', () => punch('out'));
+$('logout').addEventListener('click', logout);
+
+(function init(){
+  const u = store.get('user');
+  if(u && store.get('fileNo')){ try{ renderHome(JSON.parse(u)); return; }catch(e){} }
+  show('login');
+})();
+</script>
+</body>
+</html>
