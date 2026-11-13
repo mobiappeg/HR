@@ -31,7 +31,8 @@ button:disabled{opacity:.55;cursor:wait}
 #bIn{background:var(--in)}#bOut{background:var(--out)}
 #msg{display:none;border-radius:12px;padding:14px 16px;line-height:1.7;font-weight:600}
 #msg.ok{display:block;background:var(--ok)}#msg.bad{display:block;background:var(--bad)}
-.note{color:var(--mut);font-size:.9rem;margin-top:16px}
+.note{color:var(--mut);font-size:.9rem;margin-top:16px;line-height:1.7}
+.sites{margin-top:16px}.sites ul{margin:8px 0 0;padding:0 20px;line-height:1.9}.sites small{color:var(--mut)}
 .hidden{display:none}
 </style>
 </head>
@@ -61,7 +62,8 @@ button:disabled{opacity:.55;cursor:wait}
       <button id="bOut">انصراف</button>
     </div>
     <div id="msg" role="status" aria-live="polite"></div>
-    <p class="note">يجب أن تكون داخل نطاق 100 متر من أحد الفروع. فعّل الموقع (GPS) واسمح للمتصفح باستخدامه.</p>
+    <div class="card sites"><b>مواقع العمل والمسافة المسموحة</b><ul id="sites"></ul></div>
+    <p class="note">فعّل الموقع (GPS) واسمح للمتصفح باستخدامه، ثم اضغط حضور أو انصراف وأنت داخل نطاق أحد المواقع. الحضور مرة واحدة في اليوم، والانصراف مرة واحدة.</p>
   </section>
 </main>
 
@@ -122,7 +124,19 @@ function creds(){
 
 function renderHome(u){
   $('uName').textContent = u.name;
-  $('uInfo').textContent = 'ملف ' + u.fileNo + ' · الفرع الأساسي: ' + u.branch + ' · رصيد الإجازات: ' + u.leaveBalance;
+  $('uInfo').textContent = 'ملف ' + u.fileNo + ' · الموقع الأساسي: ' + u.branch;
+  const ul = $('sites');
+  ul.textContent = '';
+  (u.sites || []).forEach(s => {
+    const li = document.createElement('li');
+    li.textContent = s.name + ': ' + s.radius + ' متر';
+    if(s.note){
+      const n = document.createElement('small');
+      n.textContent = ' (' + s.note + ')';
+      li.appendChild(n);
+    }
+    ul.appendChild(li);
+  });
   show('home');
 }
 
@@ -169,6 +183,7 @@ async function punch(type){
   const label = r.type === 'in' ? 'تم تسجيل حضورك' : 'تم تسجيل انصرافك';
   let t = label + ' الساعة ' + r.time + ' في فرع ' + r.branch;
   if(r.type === 'out') t += '. ساعات العمل: ' + r.hours;
+  if(r.note) t += '. ' + r.note;
   say(t, true);
 }
 
@@ -185,7 +200,16 @@ $('logout').addEventListener('click', logout);
 
 (function init(){
   const u = store.get('user');
-  if(u && store.get('fileNo')){ try{ renderHome(JSON.parse(u)); return; }catch(e){} }
+  if(u && store.get('fileNo')){
+    try{
+      renderHome(JSON.parse(u));
+      // نحدّث قائمة المواقع من الشيت في الخلفية
+      call(Object.assign(creds(), {action:'login'})).then(r => {
+        if(r.ok){ store.set('user', JSON.stringify(r)); renderHome(r); }
+      });
+      return;
+    }catch(e){}
+  }
   show('login');
 })();
 </script>
